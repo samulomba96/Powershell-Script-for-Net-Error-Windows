@@ -1,43 +1,42 @@
-# ============================================================
-# Script di monitoraggio linea internet
-# Registra ping continui + statistiche scheda di rete + processi
-# antivirus/firewall/VPN attivi al momento dei salti
-# ============================================================
+# ==============================================================================
+# SCRIPT DI MONITORAGGIO DIRETTO DELLA LINEA INTERNET (Universale)
+# Registra: Ping continui + Statistiche scheda + Processi attivi + Consumo Banda
+# ==============================================================================
 
+# ---- CONFIGURAZIONE UTENTE ----
+$target = "8.8.8.8"            # Server di riferimento (Default: Google DNS)
+$intervalloSec = 1             # Frequenza del ping (in secondi)
+$durataOre = 4                  # Durata totale del monitoraggio (in ore)
 $logFile = "$env:USERPROFILE\Desktop\log_linea.txt"
-$target = "8.8.8.8"          # Server da pingare (Google DNS)
-$intervalloSec = 1           # ogni quanti secondi fare ping
-$durataOre = 4                # per quante ore monitorare (modifica pure)
 
-# ---- IMPORTANTE ----
-# Metti qui il nome ESATTO della tua scheda Ethernet fisica
-# (quello che ti restituisce Get-NetAdapter), NON quello di WireGuard/ProtonVPN
-$nomeSchedaFisica = "Ethernet"   # <-- modifica se il nome è diverso
+# Nome ESATTO della tua scheda di rete fisica (Esegui 'Get-NetAdapter' in PowerShell per verificarlo)
+$nomeSchedaFisica = "Ethernet"  # Modifica in "Wi-Fi" o nel nome corretto della tua scheda
+
+# Lista universale di processi da monitorare in caso di disconnessione.
+# Puoi aggiungere o rimuovere qualsiasi programma (es. la tua VPN, il tuo Antivirus o Torrent)
+$processiDaMonitorare = @(
+    "MsMpEng", "NisSrv",        # Windows Defender / Sicurezza di Windows
+    "wireguard", "openvpn",     # Servizi VPN generici
+    "ProtonVPNService", "ProtonVPN", "NordVPN", "ExpressVPN", # Client VPN comuni
+    "qbittorrent", "steam"      # Possibili app ad alto consumo di banda
+)
+# -------------------------------
 
 $fineTest = (Get-Date).AddHours($durataOre)
 
 "=== INIZIO MONITORAGGIO: $(Get-Date) ===" | Out-File -FilePath $logFile -Encoding UTF8
 
-# Prendi la scheda fisica specificata (non quella VPN)
+# Identificazione della scheda di rete
 $adapter = Get-NetAdapter -Name $nomeSchedaFisica -ErrorAction SilentlyContinue
 if ($null -eq $adapter) {
-    "ATTENZIONE: scheda '$nomeSchedaFisica' non trovata. Uso la prima scheda attiva disponibile." | Out-File -FilePath $logFile -Append -Encoding UTF8
+    "ATTENZIONE: Scheda '$nomeSchedaFisica' non trovata. Selezione automatica della prima scheda attiva." | Out-File -FilePath $logFile -Append -Encoding UTF8
     $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
 }
 "Scheda di rete monitorata: $($adapter.Name)" | Out-File -FilePath $logFile -Append -Encoding UTF8
-
-# Elenco processi di sicurezza/VPN noti da tenere d'occhio
-$processiSospetti = @(
-    "MsMpEng",          # Windows Defender - motore antivirus
-    "NisSrv",           # Windows Defender - protezione di rete
-    "ProtonVPNService","ProtonVPN",
-    "wireguard"
-)
-"Processi monitorati per correlazione: $($processiSospetti -join ', ')" | Out-File -FilePath $logFile -Append -Encoding UTF8
+"Processi sotto osservazione: $($processiDaMonitorare -join ', ')" | Out-File -FilePath $logFile -Append -Encoding UTF8
 "" | Out-File -FilePath $logFile -Append -Encoding UTF8
 
-# Funzione: elenca i programmi che in questo momento hanno connessioni di rete attive
-# (utile per capire cosa stava scaricando quando è saltata la linea)
+# FUNZIONE 1: Identifica i programmi con connessioni TCP attive
 function Get-ProgrammiConnessi {
     $connessioni = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
         Select-Object -Property OwningProcess, RemoteAddress, RemotePort -Unique
@@ -57,8 +56,7 @@ function Get-ProgrammiConnessi {
     return $risultato
 }
 
-# Funzione: mostra i programmi che stanno trasferendo più dati in questo momento
-# (byte al secondo - utile per capire chi sta effettivamente scaricando, non solo chi è connesso)
+# FUNZIONE 2: Calcola quali processi stanno consumando più banda in tempo reale
 function Get-TopProcessiPerBanda {
     try {
         $campione = Get-Counter '\Process(*)\IO Data Bytes/sec' -ErrorAction Stop
@@ -75,7 +73,7 @@ function Get-TopProcessiPerBanda {
         return $righe
     }
     catch {
-        return @("(impossibile leggere i contatori di sistema)")
+        return @("(Impossibile leggere i contatori di sistema - Esegui come Amministratore)")
     }
 }
 
@@ -84,16 +82,16 @@ $ultimoStatoOk = $true
 $ultimoSnapshot = Get-Date
 $pingSender = New-Object System.Net.NetworkInformation.Ping
 
+# Ciclo principale di monitoraggio
 while ((Get-Date) -lt $fineTest) {
-
     $erroreDettaglio = $null
     $risultato = $null
+    
     try {
-        $reply = $pingSender.Send($target, 2000)  # timeout 2000 ms
+        $reply = $pingSender.Send($target, 2000) # Timeout 2 secondi
         if ($reply.Status -eq 'Success') {
             $risultato = [PSCustomObject]@{ Latency = $reply.RoundtripTime }
-        }
-        else {
+        } else {
             $erroreDettaglio = "Stato: $($reply.Status)"
         }
     }
@@ -103,55 +101,54 @@ while ((Get-Date) -lt $fineTest) {
 
     $ora = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
+    # CASO A: Il pacchetto è andato perduto (Salto di linea / Rallentamento grave)
     if ($null -eq $risultato) {
-        # Pacchetto perso = possibile salto di linea
         $contatoreSalti++
-        $riga = "[$ora] *** PERDITA PACCHETTO #$contatoreSalti *** Errore esatto: $erroreDettaglio"
+        $riga = "[$ora] *** PERDITA PACCHETTO #$contatoreSalti *** Errore: $erroreDettaglio"
         Write-Host $riga -ForegroundColor Red
         $riga | Out-File -FilePath $logFile -Append -Encoding UTF8
 
-        # Quando c'è un problema, salva anche le statistiche della scheda di rete
+        # 1. Snapshot statistiche hardware della scheda
         $stats = Get-NetAdapterStatistics -Name $adapter.Name | Format-List | Out-String
-        "  --> Statistiche scheda al momento del problema:" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        "  --> Statistiche hardware scheda di rete:" | Out-File -FilePath $logFile -Append -Encoding UTF8
         $stats | Out-File -FilePath $logFile -Append -Encoding UTF8
 
-        # Controlla quali processi di sicurezza/VPN sono attivi in questo momento
-        "  --> Processi di sicurezza/VPN attivi al momento del problema:" | Out-File -FilePath $logFile -Append -Encoding UTF8
-        foreach ($nome in $processiSospetti) {
+        # 2. Controllo processi critici (Antivirus, VPN, App)
+        "  --> Stato processi critici/selezionati:" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        foreach ($nome in $processiDaMonitorare) {
             $proc = Get-Process -Name $nome -ErrorAction SilentlyContinue
             if ($proc) {
                 foreach ($p in $proc) {
-                    "      - $($p.ProcessName) (PID $($p.Id)) - CPU: $([math]::Round($p.CPU,1))s - Memoria: $([math]::Round($p.WorkingSet64/1MB,1)) MB" | Out-File -FilePath $logFile -Append -Encoding UTF8
+                    $cpuScaricata = try { [math]::Round($p.CPU, 1) } catch { "N/A" }
+                    "      - $($p.ProcessName) (PID $($p.Id)) - CPU: $($cpuScaricata)s - Memoria: $([math]::Round($p.WorkingSet64/1MB,1)) MB" | Out-File -FilePath $logFile -Append -Encoding UTF8
                 }
             }
         }
 
-        # Controlla se il servizio Windows Firewall ha registrato blocchi recenti (ultimi 2 minuti)
+        # 3. Controllo blocchi recenti del Windows Firewall
         try {
             $eventiFirewall = Get-WinEvent -FilterHashtable @{LogName='Security'; Id=5157; StartTime=(Get-Date).AddMinutes(-2)} -ErrorAction SilentlyContinue -MaxEvents 5
             if ($eventiFirewall) {
-                "  --> Blocchi Windows Firewall negli ultimi 2 minuti:" | Out-File -FilePath $logFile -Append -Encoding UTF8
+                "  --> Blocchi Windows Firewall (Ultimi 2 min):" | Out-File -FilePath $logFile -Append -Encoding UTF8
                 foreach ($ev in $eventiFirewall) {
                     "      - $($ev.TimeCreated): $($ev.Message.Split("`n")[0])" | Out-File -FilePath $logFile -Append -Encoding UTF8
                 }
             }
-        } catch {
-            # Il log "Security" con auditing sulle connessioni potrebbe non essere abilitato: non è un errore critico
-        }
+        } catch {}
 
-        # Quale programma stava scaricando/comunicando al momento del salto
-        "  --> Programmi con connessioni di rete attive al momento del problema:" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        # 4. Programmi attivamente connessi a internet
+        "  --> Programmi con connessioni di rete stabilite:" | Out-File -FilePath $logFile -Append -Encoding UTF8
         $programmi = Get-ProgrammiConnessi
         if ($programmi.Count -gt 0) {
-            foreach ($riga2 in $programmi) {
-                "      - $riga2" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            foreach ($rigaProg in $programmi) {
+                "      - $rigaProg" | Out-File -FilePath $logFile -Append -Encoding UTF8
             }
         } else {
-            "      (nessuna connessione attiva rilevata in questo istante)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "      (Nessuna connessione attiva rilevata)" | Out-File -FilePath $logFile -Append -Encoding UTF8
         }
 
-        # Chi sta effettivamente trasferendo più dati in questo momento (velocità reale)
-        "  --> Programmi che trasferiscono più dati in questo istante:" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        # 5. Chi sta effettivamente consumando banda in KB/s
+        "  --> Top processi per consumo di banda istantaneo:" | Out-File -FilePath $logFile -Append -Encoding UTF8
         $topBanda = Get-TopProcessiPerBanda
         foreach ($rigaB in $topBanda) {
             "      - $rigaB" | Out-File -FilePath $logFile -Append -Encoding UTF8
@@ -159,49 +156,43 @@ while ((Get-Date) -lt $fineTest) {
 
         $ultimoStatoOk = $false
     }
+    # CASO B: La linea risponde correttamente
     else {
         $tempo = $risultato.Latency
         if (-not $ultimoStatoOk) {
-            # La linea è tornata su dopo un salto: lo segnaliamo
-            "[$ora] Linea RIPRISTINATA (latenza: $tempo ms)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "[$ora] >>> Linea RIPRISTINATA (Latenza attuale: $tempo ms)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            Write-Host "[$ora] Linea ripristinata ($tempo ms)" -ForegroundColor Green
             $ultimoStatoOk = $true
         }
         elseif ($tempo -gt 200) {
-            # Latenza anomala anche se non è caduto il pacchetto
-            $riga = "[$ora] Latenza alta: $tempo ms"
-            $riga | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "[$ora] Latenza anomala alta: $tempo ms" | Out-File -FilePath $logFile -Append -Encoding UTF8
         }
     }
 
     Start-Sleep -Seconds $intervalloSec
 
-    # Ogni 30 secondi, registra comunque uno snapshot di chi sta scaricando
-    # (utile per avere un quadro continuo, non solo nei momenti di problema)
+    # OGNI 30 SECONDI: Genera comunque un report del traffico (per storico)
     if (((Get-Date) - $ultimoSnapshot).TotalSeconds -ge 30) {
         $oraSnap = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        "[$oraSnap] --- Snapshot periodico programmi connessi ---" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        "[$oraSnap] --- Snapshot Periodico della Rete ---" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        
         $programmiSnap = Get-ProgrammiConnessi
         if ($programmiSnap.Count -gt 0) {
             foreach ($riga3 in $programmiSnap) {
                 "      - $riga3" | Out-File -FilePath $logFile -Append -Encoding UTF8
             }
-        } else {
-            "      (nessuna connessione attiva)" | Out-File -FilePath $logFile -Append -Encoding UTF8
         }
 
-        "      Velocità di trasferimento (top 5 programmi attivi):" | Out-File -FilePath $logFile -Append -Encoding UTF8
         $topBandaSnap = Get-TopProcessiPerBanda
         if ($topBandaSnap.Count -gt 0) {
+            "      Consumo banda stimato:" | Out-File -FilePath $logFile -Append -Encoding UTF8
             foreach ($rigaB2 in $topBandaSnap) {
                 "      - $rigaB2" | Out-File -FilePath $logFile -Append -Encoding UTF8
             }
-        } else {
-            "      (nessun trasferimento dati significativo rilevato)" | Out-File -FilePath $logFile -Append -Encoding UTF8
         }
-
         $ultimoSnapshot = Get-Date
     }
 }
 
-"=== FINE MONITORAGGIO: $(Get-Date) - Totale perdite pacchetto: $contatoreSalti ===" | Out-File -FilePath $logFile -Append -Encoding UTF8
-Write-Host "Monitoraggio terminato. Controlla il file: $logFile" -ForegroundColor Green
+"=== FINE MONITORAGGIO: $(Get-Date) - Totale pacchetti persi: $contatoreSalti ===" | Out-File -FilePath $logFile -Append -Encoding UTF8
+Write-Host "Monitoraggio terminato con successo. Log salvato in: $logFile" -ForegroundColor Green
