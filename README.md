@@ -1,72 +1,39 @@
-Monitoraggio Avanzato Linea Internet (PowerShell)
-Questo script in PowerShell è uno strumento diagnostico universale progettato per monitorare la stabilità della tua connessione internet e correlare eventuali disconnessioni alle attività del tuo PC.
+# Let's write the complete README.md to a file just in case it's helpful, or simply format it nicely.
+# The user wants a clean, well-formatted Markdown structure for GitHub with prominent headers.
 
-A differenza dei classici test di ping continui, quando questo strumento rileva una perdita di pacchetti (un "salto" di linea) o una latenza anomala, scatta uno "snapshot" istantaneo del sistema per aiutarti a capire se il problema è causato dal tuo operatore telefonico (ISP), da un sovraccarico di banda o da un software locale.
+readme_content = """# 📊 Monitoraggio Avanzato Linea Internet (PowerShell)
 
-📋 Funzionalità principali
-Monitoraggio Continuo: Esegue un ping al secondo verso un server stabile (Default: Google DNS 8.8.8.8).
+Lo script in PowerShell incluso in questo repository è uno strumento diagnostico universale progettato per **monitorare la stabilità della connessione internet** e correlare in tempo reale eventuali disconnessioni o rallentamenti alle attività software e hardware del proprio PC.
 
-Diagnostica dei Salti di Linea: In caso di timeout o errore, registra nel log:
+A differenza dei classici test di ping continui, quando questo strumento rileva una perdita di pacchetti (un "salto" di linea) o una latenza anomala, scatta uno **snapshot istantaneo del sistema**. Questo permette di capire se il problema sia causato dal provider internet (ISP), da un sovraccarico di banda locale o da un conflitto software.
 
-Stato Hardware: Statistiche in tempo reale della scheda di rete (errori, pacchetti scartati).
+---
 
-Processi di Rete e Sicurezza: Stato e consumi (CPU/Memoria) di un elenco di software personalizzabile (Antivirus, VPN, client di download).
+## 📋 Funzionalità Principali
 
-Attività di Rete: Elenco completo dei programmi con connessioni TCP attive in quel preciso istante.
+* **Monitoraggio Continuo ed Istantaneo:** Esegue un ping al secondo verso un server di riferimento ad alta affidabilità (Default: Google DNS `8.8.8.8`).
+* **Diagnostica Avanzata dei Salti di Linea:** In caso di timeout o errore di rete, acquisisce immediatamente nel log:
+  * 🛠️ **Stato Hardware:** Statistiche complete della scheda di rete (errori di trasmissione, pacchetti scartati, stato del link).
+  * 🛡️ **Processi di Rete e Sicurezza:** Stato, PID e consumi di risorse (CPU e Memoria) di un elenco di software personalizzabile (Antivirus, VPN, client di download).
+  * 🌐 **Attività di Rete Attiva:** Elenco completo di tutti i programmi che hanno connessioni TCP stabilite in quel preciso istante.
+  * 📈 **Analisi della Banda:** Top 5 processi che stanno occupando più banda in tempo reale (espressa in KB/s).
+  * 🧱 **Registri del Firewall:** Analisi degli ultimi 2 minuti dei log di sicurezza di Windows per intercettare eventuali blocchi del Windows Firewall (Event ID 5157).
+* **Snapshot Periodici di Controllo:** Ogni 30 secondi salva un riepilogo del traffico per monitorare l'andamento della banda anche quando la linea funziona correttamente, offrendo uno storico comparativo.
+* **Report Log Autocontenuto:** Salva un file di testo leggibile e strutturato direttamente sul Desktop dell'utente (`log_linea.txt`).
 
-Analisi dei Consumi: Top 5 processi che stanno occupando più banda in tempo reale (in KB/s).
+---
 
-Registri di Sicurezza: Eventuali blocchi recenti generati dal Windows Firewall (Event ID 5157).
+## 🛠️ Personalizzazione e Configurazione
 
-Snapshot Periodici: Ogni 30 secondi salva un riepilogo del traffico per monitorare l'andamento della banda anche quando la linea funziona correttamente.
+Prima di avviare lo script, apri il file `monitora_linea.ps1` con un editor di testo (es. Blocco Note, VS Code) e modifica le variabili situate nella sezione **`---- CONFIGURAZIONE UTENTE ----`**:
 
-Report Automatico: Salva un file di testo chiaro e leggibile direttamente sul Desktop (log_linea.txt).
+### 1. Scheda di Rete Fisica (`$nomeSchedaFisica`)
+Inserisci il nome esatto della tua interfaccia di rete principale (es. `"Ethernet"` o `"Wi-Fi"`).
+> **Come trovarlo:** Apri PowerShell e digita `Get-NetAdapter`. Utilizza il valore sotto la colonna *Name* della tua scheda fisica principale. Ignora le schede virtuali o quelle create dalle VPN.
 
-🛠️ Personalizzazione e Configurazione
-Prima di avviare lo script, apri il file .ps1 con un editor di testo (es. Blocco Note o VS Code) per adattarlo al tuo computer modificando le variabili nella sezione ---- CONFIGURAZIONE UTENTE ----:
+### 2. Parametri del Test (`$durataOre`, `$intervalloSec`)
+* `$durataOre`: Imposta la durata totale del monitoraggio continuo (es. `4` per quattro ore, `12` per mezza giornata).
+* `$intervalloSec`: Frequenza del ping espressa in secondi (default `1`).
 
-1. Scheda di Rete Fisica ($nomeSchedaFisica)
-Inserisci il nome esatto della tua scheda di rete principale (es. "Ethernet" o "Wi-Fi").
-
-Come trovarlo: Apri PowerShell e digita Get-NetAdapter. Usa il nome della tua scheda fisica principale (ignora le schede virtuali o quelle create dalle VPN).
-
-2. Durata e Frequenza ($durataOre, $intervalloSec)
-Imposta per quante ore desideri che il monitoraggio rimanga attivo (es. 4) e la frequenza del ping in secondi (es. 1).
-
-3. Lista dei Processi Universale ($processiDaMonitorare)
-Questa lista è completamente personalizzabile. Puoi inserire i nomi dei processi (senza .exe) di qualsiasi software installato sul tuo PC che desideri tenere sotto osservazione durante un blocco di rete:
-
-PowerShell
-$processiDaMonitorare = @(
-    "MsMpEng", "NisSrv",        # Windows Defender / Sicurezza di Windows
-    "wireguard", "openvpn",     # Servizi VPN generici
-    "ProtonVPNService", "NordVPN", "ExpressVPN", # Esempi di client VPN
-    "qbittorrent", "steam"      # Esempi di app ad alto consumo di banda
-)
-🚀 Come Eseguire lo Script
-Per poter accedere ai contatori della banda di sistema e ai registri del Firewall di Windows, lo script richiede privilegi di Amministratore.
-
-Clicca con il tasto destro sul menu Start e seleziona Terminale (Amministratore) oppure PowerShell (Amministratore).
-
-Se non lo hai mai fatto sul tuo PC, abilita temporaneamente l'esecuzione degli script digitando:
-
-PowerShell
-Set-ExecutionPolicy RemoteSigned -Scope Process
-(Premi S o Sì per confermare).
-
-Spostati nella cartella in cui hai salvato lo script (es. se lo hai salvato sul Desktop):
-
-PowerShell
-cd $env:USERPROFILE\Desktop
-Avvia il monitoraggio:
-
-PowerShell
-.\monitora_linea.ps1
-📂 Come Interpretare i Risultati (log_linea.txt)
-Il file generato sul tuo Desktop ti permetterà di isolare la causa del problema:
-
-Problema della Linea (ISP/Router): Se vedi errori di ping ma i consumi di banda dei programmi sono minimi o azzerati, il problema è quasi certamente del tuo provider internet o del router.
-
-Saturazione della Banda: Se il salto di linea coincide con picchi elevati in KB/s di un processo (es. steam, qbittorrent), la linea sta cadendo o rallentando perché il PC sta saturando la banda disponibile.
-
-Conflitto Software: Se noti picchi anomali di CPU/Memoria o blocchi del Firewall in concomitanza con i processi dell'Antivirus o della VPN, il software di sicurezza potrebbe aver momentaneamente bloccato il traffico.
+### 3. Lista dei Processi da Monitorare (`$processiDaMonitorare`)
+L'array è universale e completamente personalizzabile. Inserisci i nomi dei processi (senza l'estensione `.exe`) di qualunque software installato sul tuo computer che desideri tenere sotto osservazione durante i blocchi di rete:
