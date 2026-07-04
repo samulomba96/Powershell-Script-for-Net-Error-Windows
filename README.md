@@ -1,5 +1,3 @@
-Ecco il file README.md aggiornato e strutturato appositamente per questa versione universale dello script.
-
 Monitoraggio Avanzato Linea Internet (PowerShell)
 Questo script in PowerShell è uno strumento diagnostico universale progettato per monitorare la stabilità della tua connessione internet e correlare eventuali disconnessioni alle attività del tuo PC.
 
